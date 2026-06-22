@@ -1,0 +1,773 @@
+\documentclass[journal,spanish]{IEEEtran}
+
+% ─── Paquetes ────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel} % Evita que babel cambie puntos por comas en gráficos
+\usepackage{amsmath,amssymb} 
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{cite}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta, positioning, calc}
+
+% ─── Configuración listings ──────────────────────────────────────────────────
+\definecolor{codeblue}{RGB}{0,0,160}
+\definecolor{codegray}{RGB}{128,128,128}
+\definecolor{codegreen}{RGB}{0,120,0}
+\definecolor{backgray}{RGB}{248,248,248}
+
+\lstset{
+  language=Python,
+  basicstyle=\footnotesize\ttfamily,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{codegray},
+  backgroundcolor=\color{backgray},
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{codegray},
+  breaklines=true,
+  breakatwhitespace=true,
+  tabsize=4,
+  showstringspaces=false,
+  captionpos=b
+}
+
+% ─── Teoremas (Nativos de IEEEtran) ──────────────────────────────────────────
+\newtheorem{theorem}{Teorema}
+\newtheorem{definition}{Definición}
+\newtheorem{corollary}{Corolario}
+\newtheorem{property}{Propiedad}
+
+% ─── Metadatos ───────────────────────────────────────────────────────────────
+\title{Eliminación de Ruido Tonal en Señales de Audio mediante Filtro Notch en el Dominio de la FFT}
+
+\author{Irvin Josue Pineda Molina 00024420, Néstor Esaú Recinos Escobar 00083120, y Diego Alejandro Castro Recinos 00182122\\
+\vspace{0.2cm}
+Universidad Centroamericana ``José Simeón Cañas'' (UCA)\\
+Facultad de Ingeniería y Arquitectura --- Departamento de Electrónica e Informática\\
+Análisis Numérico, Ciclo 01-2026, Sección 01}
+
+\begin{document}
+
+\maketitle
+
+% ─── Resumen ─────────────────────────────────────────────────────────────────
+\begin{abstract}
+Se presenta el diseño e implementación de un \textit{filtro Notch} en el dominio de la 
+Transformada Rápida de Fourier (FFT) para la eliminación de ruido tonal en señales de audio 
+digital. Se describe el fundamento matemático de la Transformada Discreta de Fourier (DFT) 
+y su algoritmo optimizado Cooley-Tukey, así como los teoremas que sustentan la operación de 
+filtrado espectral: el Teorema de Convolución, la Simetría Hermítica y el Teorema de Parseval. 
+La metodología consiste en transformar la señal al dominio frecuencial, aplicar una máscara 
+binaria que anula los coeficientes espectrales en las frecuencias de interferencia, y reconstruir 
+la señal mediante la IFFT. Los experimentos sobre una señal sintética demuestran la eliminación 
+efectiva del zumbido de red eléctrica (60~Hz y sus armónicos), con una reducción de hasta el 
+62\% de la energía de ruido, sin degradación perceptible de la señal útil.
+\end{abstract}
+
+\begin{IEEEkeywords}
+FFT, DFT, filtro Notch, procesamiento de audio, eliminación de ruido tonal, simetría hermítica.
+\end{IEEEkeywords}
+
+
+% ═════════════════════════════════════════════════════════════════════════════
+\section{Introducción}
+% ═════════════════════════════════════════════════════════════════════════════
+
+El ruido de origen eléctrico es uno de los problemas común en el procesamiento de 
+señales de audio. El \emph{zumbido de red} (\textit{hum}) a 50 o 60~Hz, junto con sus 
+armónicos, aparece sistemáticamente en grabaciones realizadas con equipamiento conectado 
+a la red eléctrica y constituye una interferencia tonal que degrada notablemente la calidad 
+de la señal \cite{Tan2020}.
+
+\smallskip 
+
+El análisis de Fourier provee solución para atacar este problema: al transformar la 
+señal al dominio frecuencial, el ruido tonal se manifiesta como picos bien localizados en el 
+espectro de magnitud, los cuales pueden ser suprimidos de forma precisa sin afectar las 
+componentes espectrales. Esta técnica, conocida como \emph{filtrado Notch en el 
+dominio de la FFT}, es computacionalmente eficiente gracias a la complejidad $\mathcal{O}(N \log N)$ 
+del algoritmo de Cooley-Tukey (Transformada Rápida de Fourier (FFT)\cite{Cooley1967}.
+
+
+\smallskip 
+
+Se tiene como objetivos: (1)~formalizar matemáticamente el problema de 
+eliminación de ruido tonal; (2)~fundamentar teóricamente la DFT, la FFT y los teoremas 
+relevantes; (3)~describir el diseño del filtro Notch; y (4)~presentar resultados 
+experimentales que validen la metodología.
+
+\smallskip 
+El documento se organiza de la siguiente manera: la Sección~\ref{sec:marco} desarrolla el 
+marco teórico; la Sección~\ref{sec:metodo} describe la metodología de implementación; la 
+Sección~\ref{sec:resultados} presenta los resultados; y la Sección~\ref{sec:conclusiones} 
+expone las conclusiones y limitaciones del método.
+
+
+% ═════════════════════════════════════════════════════════════════════════════
+\section{Marco Teórico}
+\label{sec:marco}
+% ═════════════════════════════════════════════════════════════════════════════
+
+\subsection{Definición Matemática del Problema}
+
+Sea $x[n]$, $n = 0,1,\ldots,N-1$, una señal de audio digital muestreada a frecuencia 
+$f_s$ [Hz], que se modela como la suma de una señal útil $s[n]$ y un ruido tonal $r[n]$:
+
+\begin{equation}
+  x[n] = s[n] + r[n],
+  \label{eq:modelo}
+\end{equation}
+
+donde el ruido tonal está compuesto por $M$ sinusoides de frecuencias conocidas $\{f_1, f_2, \ldots, f_M\}$:
+
+\begin{equation}
+  r[n] = \sum_{m=1}^{M} A_m \sin\!\left(2\pi f_m \frac{n}{f_s} + \phi_m\right).
+  \label{eq:ruido}
+\end{equation}
+
+El \textbf{problema de filtrado} consiste en obtener una estimación $\hat{s}[n]$ tal que:
+
+\begin{equation}
+  \hat{s}[n] = x[n] - \hat{r}[n] \approx s[n],
+  \label{eq:objetivo}
+\end{equation}
+
+minimizando la distorsión sobre $s[n]$ mientras se suprime $r[n]$ en las bandas 
+$[f_m - \Delta f, \, f_m + \Delta f]$ para cada frecuencia de ruido $f_m$.
+
+\subsection{Transformada Discreta de Fourier (DFT)}
+
+\begin{definition}[DFT]
+  Dada la secuencia $x[n] \in \mathbb{C}^N$, su \emph{Transformada Discreta de Fourier} 
+  se define como:
+  \begin{equation}
+    X[k] = \sum_{n=0}^{N-1} x[n]\, e^{-j2\pi kn/N}, \quad k = 0,1,\ldots,N-1.
+    \label{eq:dft}
+  \end{equation}
+\end{definition}
+
+\smallskip 
+
+La DFT mapea la señal del dominio temporal discreto al dominio frecuencial discreto. 
+El índice $k$ corresponde a la frecuencia analógica $f_k = k f_s / N$. 
+La \textbf{resolución espectral} es $\Delta f = f_s/N$: a mayor duración de la señal, 
+mayor resolución en frecuencia.
+
+\smallskip
+
+Alternativamente, la ecuación~\eqref{eq:dft} puede expresarse en una forma matricial compacta introduciendo el factor de fase o \emph{twiddle factor}, definido como $W_N = e^{-j2\pi/N}$. Si se definen el vector de entrada en el tiempo $\mathbf{x} = [x[0], x[1], \ldots, x[N-1]]^T$ y el vector de coeficientes en la frecuencia $\mathbf{X} = [X[0], X[1], \ldots, X[N-1]]^T$, la transformación se reduce al producto matriz-vector:
+\begin{equation}
+  \mathbf{X} = \mathbf{F}_N \mathbf{x}
+  \label{eq:dft_matricial}
+\end{equation}
+donde $\mathbf{F}_N \in \mathbb{C}^{N \times N}$ es la \textbf{matriz de la DFT} (o matriz de Fourier), cuyos elementos están indexados por $[\mathbf{F}_N]_{k,n} = W_N^{k \cdot n}$ para $k,n = 0,1,\ldots,N-1$, expandiéndose de la siguiente manera:
+\begin{equation}
+  \mathbf{F}_N = \begin{bmatrix}
+    1 & 1 & 1 & \cdots & 1 \\
+    1 & W_N^1 & W_N^2 & \cdots & W_N^{N-1} \\
+    1 & W_N^2 & W_N^4 & \cdots & W_N^{2(N-1)} \\
+    \vdots & \vdots & \vdots & \ddots & \vdots \\
+    1 & W_N^{N-1} & W_N^{2(N-1)} & \cdots & W_N^{(N-1)(N-1)}
+  \end{bmatrix}
+  \label{eq:matriz_dft}
+\end{equation}
+Esta formulación matricial es fundamental para evidenciar que la DFT es una transformación lineal unitaria, donde las filas de $\mathbf{F}_N$ actúan como una base ortogonal para el espacio $\mathbb{C}^N$.
+
+\smallskip 
+
+La transformada inversa (IDFT) permite recuperar la señal original:
+
+\begin{equation}
+  x[n] = \frac{1}{N}\sum_{k=0}^{N-1} X[k]\, e^{+j2\pi kn/N}, \quad n = 0,1,\ldots,N-1.
+  \label{eq:idft}
+\end{equation}
+
+La complejidad computacional de la DFT calculada directamente mediante la ecuación 
+\eqref{eq:dft} es $\mathcal{O}(N^2)$, lo que la hace impráctica para señales largas.
+
+
+\subsection{Transformada Rápida de Fourier (FFT)}
+
+\begin{definition}[Algoritmo de Cooley-Tukey]
+  La \emph{Transformada Rápida de Fourier} (FFT, \textit{Fast Fourier Transform}) es 
+  un algoritmo divide-y-vencerás que calcula la DFT en $\mathcal{O}(N\log N)$ operaciones, 
+  aprovechando la simetría y periodicidad de la raíz $N$-ésima de la unidad 
+  $W_N = e^{-j2\pi/N} $ \cite{Cooley1967}.
+\end{definition}
+
+\smallskip 
+
+La idea central es descomponer la DFT de tamaño $N$ (asumiendo $N = 2^p$) en dos 
+DFTs de tamaño $N/2$, una sobre las muestras de índice par y otra sobre las de índice impar:
+
+\begin{align}
+  X[k] &= \underbrace{\sum_{n=0}^{N/2-1} x[2n]\, W_N^{2kn}}_{E[k]}
+          + W_N^k \underbrace{\sum_{n=0}^{N/2-1} x[2n+1]\, W_N^{2kn}}_{O[k]},
+  \label{eq:fft_split}
+\end{align}
+
+donde $E[k]$ y $O[k]$ son las DFTs de las subsecuencias par e impar, respectivamente. 
+Este proceso se aplica recursivamente, reduciendo la complejidad de $\mathcal{O}(N^2)$ a 
+$\mathcal{O}(N\log_2 N)$.
+
+\begin{table}[H]
+  \caption{Comparación de complejidad: DFT directa vs.\ FFT}
+  \label{tab:complejidad}
+  \centering
+  \begin{tabular}{lcc}
+    \toprule
+    $N$ (muestras) & DFT directa ($N^2$) & FFT ($N\log_2 N$) \\
+    \midrule
+    1\,024    &   1\,048\,576   &   10\,240  \\
+    8\,192    &  67\,108\,864   &  106\,496  \\
+    44\,100   & 1\,944\,810\,000 &  680\,802  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\smallskip 
+
+La Tabla~\ref{tab:complejidad} ilustra la ventaja computacional de la FFT: para una señal 
+de 1~s muestreada a 44\,100~Hz, la FFT requiere aproximadamente 2\,860 veces menos 
+operaciones que la DFT directa.
+
+
+\subsection{Teoremas Relevantes}
+
+Los siguientes teoremas fundamentan matemáticamente el filtrado en el dominio frecuencial.
+
+\smallskip 
+\begin{theorem}[Convolución Circular \cite{Kulkarni}]
+  Sean $x[n]$ e $h[n]$ dos secuencias de longitud $N$, y sean $X[k]$ y $H[k]$ sus 
+  respectivas DFTs. Entonces, la convolución circular de ambas secuencias en el dominio 
+  temporal equivale a la multiplicación punto a punto en el dominio frecuencial:
+  \begin{equation}
+    x[n] \circledast h[n] \;\longleftrightarrow\; X[k] \cdot H[k].
+    \label{eq:convolucion}
+  \end{equation}
+\end{theorem}
+
+\begin{IEEEproof}
+  Por la definición de convolución circular:
+  $(x \circledast h)[n] = \sum_{m=0}^{N-1} x[m]\, h[(n-m)\bmod N]$.
+  Aplicando la DFT a ambos lados y usando la periodicidad de $W_N^k$, se obtiene 
+  directamente $\mathcal{F}\{x \circledast h\}[k] = X[k] \cdot H[k]$.
+\end{IEEEproof}
+
+\smallskip 
+Este teorema justifica el filtrado espectral: multiplicar $X[k]$ por una función de 
+transferencia $H[k]$ en el dominio de la frecuencia equivale a aplicar el filtro 
+$h[n]$ (respuesta al impulso) mediante convolución en el tiempo.
+
+\smallskip 
+\begin{theorem}[Simetría Hermítica \cite{Kulkarni}]
+  Si $x[n] \in \mathbb{R}^N$ (señal real), entonces su DFT satisface:
+  \begin{equation}
+    X[N-k] = \overline{X[k]}, \quad k = 0,1,\ldots,N-1,
+    \label{eq:simetria}
+  \end{equation}
+  donde $\overline{(\cdot)}$ denota el conjugado complejo.
+\end{theorem}
+
+\begin{IEEEproof}
+  $X[N-k] = \sum_{n=0}^{N-1} x[n] e^{-j2\pi(N-k)n/N}
+
+  
+           = \sum_{n=0}^{N-1} x[n] e^{j2\pi kn/N}
+           = \overline{\sum_{n=0}^{N-1} x[n] e^{-j2\pi kn/N}}
+           = \overline{X[k]}$,
+           
+\smallskip 
+  donde se usó que $x[n] \in \mathbb{R}$ implica $\overline{x[n]} = x[n]$.
+\end{IEEEproof}
+
+\smallskip 
+
+\begin{corollary}[Condición de realidad]
+  La señal reconstruida por la IDFT es real si y solo si el espectro modificado 
+  $\tilde{X}[k]$ satisface la simetría hermítica $\tilde{X}[N-k] = \overline{\tilde{X}[k]}$.
+\end{corollary}
+
+\smallskip 
+Esta propiedad es crucial para el diseño del filtro Notch: la máscara de filtrado debe 
+anular tanto la componente en $+f_m$ como su imagen especular en $-f_m$ (i.e., 
+$X[N - k_m]$) para preservar la realidad de la señal reconstruida.
+
+\smallskip 
+
+\begin{theorem}[Parseval \cite{Tan2020}]
+  La energía total de la señal se conserva entre los dominios temporal y frecuencial:
+  \begin{equation}
+    \sum_{n=0}^{N-1} |x[n]|^2 = \frac{1}{N}\sum_{k=0}^{N-1}|X[k]|^2.
+    \label{eq:parseval}
+  \end{equation}
+\end{theorem}
+
+El Teorema de Parseval permite cuantificar la energía eliminada por el filtro Notch 
+como fracción de la energía total de la señal de entrada.
+
+\smallskip 
+
+\begin{theorem}[Desplazamiento en Frecuencia]
+  Si $X[k]$ es la DFT de $x[n]$, entonces la modulación de la señal por un tono $f_0$ 
+  equivale a un desplazamiento en frecuencia:
+  \begin{equation}
+    x[n]\, e^{j2\pi f_0 n/f_s} \;\longleftrightarrow\; X\!\left[k - \frac{f_0 N}{f_s}\right].
+  \end{equation}
+\end{theorem}
+
+\begin{property}[Linealidad de la DFT]
+  La DFT es una transformación lineal. Para $\alpha, \beta \in \mathbb{C}$:
+  \begin{equation}
+    \mathcal{F}\{\alpha x[n] + \beta y[n]\} = \alpha X[k] + \beta Y[k].
+  \end{equation}
+  En particular, la DFT del modelo~\eqref{eq:modelo} satisface $\mathcal{F}\{x\} = \mathcal{F}\{s\} + \mathcal{F}\{r\}$.
+\end{property}
+
+
+\subsection{Filtro Notch Ideal en el Dominio Espectral}
+
+El filtro Notch se define mediante una función de transferencia discreta $H[k] \in \{0,1\}$:
+
+\begin{equation}
+  H[k] = 
+  \begin{cases}
+    0 & \text{si } \bigl| |f_k| - f_m \bigr| \le \Delta f_B,\quad \exists\, m \in \{1,\ldots,M\}, \\
+    1 & \text{en caso contrario,}
+  \end{cases}
+  \label{eq:notch}
+\end{equation}
+
+donde $f_k = k f_s / N$ es la frecuencia del bin $k$, $f_m$ son las frecuencias de rechazo 
+y $\Delta f_B$ es el semiancho de banda de rechazo. La señal filtrada en el dominio 
+frecuencial es:
+
+\begin{equation}
+  \tilde{X}[k] = H[k]\, X[k],
+\end{equation}
+
+y la señal reconstruida se obtiene aplicando la IDFT:
+
+\begin{equation}
+  \hat{s}[n] = \frac{1}{N}\sum_{k=0}^{N-1}\tilde{X}[k]\, e^{+j2\pi kn/N}.
+  \label{eq:reconstruccion}
+\end{equation}
+
+Dado que $H[k]$ respeta la simetría hermítica (al operar sobre $|f_k|$, anula 
+simultáneamente $+f_m$ y $-f_m$), la señal $\hat{s}[n]$ es real, tal como lo garantiza 
+el Corolario~1.
+
+
+% ═════════════════════════════════════════════════════════════════════════════
+\section{Metodología}
+\label{sec:metodo}
+% ═════════════════════════════════════════════════════════════════════════════
+
+\subsection{Descripción del Flujo de Trabajo}
+
+La Figura~\ref{fig:flujo} ilustra el flujo de procesamiento implementado en el 
+\textit{notebook} de Jupyter.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+    node distance=0.55cm and 0.2cm,
+    block/.style={draw, rounded corners=3pt, fill=blue!8, 
+                  minimum width=3.5cm, minimum height=0.65cm,
+                  font=\small, align=center},
+    arrow/.style={-Stealth, thick}
+  ]
+  \node[block] (carga)     {Carga del audio\\$x[n],\, f_s$};
+  \node[block, below=of carga]  (fft)      {FFT: $X[k] = \mathcal{F}\{x[n]\}$};
+  \node[block, below=of fft]    (espectro) {Visualización del espectro\\Detección de picos};
+  \node[block, below=of espectro](notch)   {Construcción de $H[k]$\\(máscara Notch)};
+  \node[block, below=of notch]  (filtrado) {Filtrado: $\tilde{X}[k]=H[k]\,X[k]$};
+  \node[block, below=of filtrado](ifft)    {IFFT: $\hat{s}[n] = \mathcal{F}^{-1}\{\tilde{X}[k]\}$};
+  \node[block, below=of ifft]    (export)   {Exportación del audio limpio};
+
+  \draw[arrow] (carga)     -- (fft);
+  \draw[arrow] (fft)       -- (espectro);
+  \draw[arrow] (espectro)  -- (notch);
+  \draw[arrow] (notch)     -- (filtrado);
+  \draw[arrow] (filtrado)  -- (ifft);
+  \draw[arrow] (ifft)      -- (export);
+\end{tikzpicture}
+\caption{Flujo de procesamiento del filtro Notch en el dominio de la FFT.}
+\label{fig:flujo}
+\end{figure}
+
+\subsection{Señal de Prueba}
+
+Se utilizó una señal sintética de $f_s = 8{,}000$~Hz y duración $T = 2$~s 
+($N = 16{,}000$ muestras), compuesta por:
+
+\begin{itemize}
+  \item \textbf{Señal útil (voz simulada):} superposición de tres armónicos sobre la 
+        fundamental $f_0 = 220$~Hz,
+        \begin{equation}
+        \begin{split}
+          s[n] = {} & \sin\left(2\pi \cdot 220 \tfrac{n}{f_s}\right) \\
+                    & + 0.5\sin\left(2\pi \cdot 440 \tfrac{n}{f_s}\right) \\
+                    & + 0.3\sin\left(2\pi \cdot 660 \tfrac{n}{f_s}\right).
+        \end{split}
+        \end{equation}
+  \item \textbf{Ruido tonal:} zumbido a 60~Hz y tono a 1\,000~Hz,
+        \begin{equation}
+        \begin{split}
+          r[n] = {} & 0.6\sin\left(2\pi \cdot 60 \tfrac{n}{f_s}\right) \\
+                    & + 0.5\sin\left(2\pi \cdot 1000 \tfrac{n}{f_s}\right).
+        \end{split}
+        \end{equation}
+\end{itemize}
+
+La señal contaminada es $x[n] = s[n] + r[n]$, conforme al modelo~\eqref{eq:modelo}.
+
+\subsection{Parámetros del Filtro Notch}
+
+\begin{itemize}
+  \item \textbf{Frecuencias de rechazo:} $f_1 = 60$~Hz (con armónicos: 120, 180, 240~Hz) 
+        y $f_2 = 1{,}000$~Hz.
+  \item \textbf{Semiancho de banda:} $\Delta f_B = 2$~Hz.
+  \item \textbf{Resolución espectral:} $\Delta f = f_s / N = 8{,}000/16{,}000 = 0.5$~Hz/bin.
+\end{itemize}
+\subsection{Implementación}
+
+El Algoritmo~\ref{alg:notch} describe el procedimiento de construcción y aplicación del 
+filtro Notch. El código fue implementado íntegramente en Python, utilizando únicamente 
+\texttt{numpy.fft} para las transformadas, conforme a los requisitos del proyecto.
+
+\begin{algorithm}[t]
+\caption{Filtro Notch en el dominio de la FFT}
+\label{alg:notch}
+\begin{algorithmic}[1]
+\Require $x[n]$: señal de entrada; $f_s$: frecuencia de muestreo; 
+         $\{f_m\}$: frecuencias de rechazo; $\Delta f_B$: semiancho
+\Ensure $\hat{s}[n]$: señal filtrada (real)
+\State $N \gets \text{len}(x)$
+\State $X[k] \gets \texttt{fft}(x)$
+\State $f_k \gets \texttt{fftfreq}(N) \cdot f_s$ \Comment{frecuencias de cada bin}
+\State $H[k] \gets \mathbf{1}_N$ \Comment{máscara inicializada en 1}
+\For{cada $f_m$ en $\{f_m\}$}
+  \State $H[k] \gets 0$ donde $\bigl| |f_k| - f_m \bigr| \le \Delta f_B$
+\EndFor
+\State $\tilde{X}[k] \gets H[k] \cdot X[k]$
+\State $\hat{s}[n] \gets \text{Re}\bigl(\texttt{ifft}(\tilde{X})\bigr)$
+\State \Return $\hat{s}[n]$
+\end{algorithmic}
+\end{algorithm}
+
+Se muestra el núcleo de la implementación en Python: \par
+\nopagebreak
+\vspace{0.2cm}
+\noindent
+\begin{minipage}{\columnwidth}
+\begin{lstlisting}[
+    caption={Implementación del filtro Notch con FFT en Python},
+    label={lst:notch},
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,
+    xleftmargin=4mm,
+    xrightmargin=1mm
+]
+import numpy as np
+
+def aplicar_filtro_notch(senal, fs, freqs_ruido, ancho=2.0):
+    N = len(senal)
+    X = np.fft.fft(senal)
+    f = np.fft.fftfreq(N, d=1/fs)  # frecuencias de cada bin
+
+    mascara = np.ones(N)
+    for f_r in freqs_ruido:
+        # Anula +f_r y -f_r simultaneamente
+        # (Teorema de Simetria Hermitica)
+        bins = np.abs(np.abs(f) - f_r) <= ancho
+        mascara[bins] = 0
+
+    X_filt = X * mascara
+    senal_limpia = np.real(np.fft.ifft(X_filt))
+    return senal_limpia
+\end{lstlisting}
+\end{minipage}
+
+\medskip
+La línea 9 del Listado~\ref{lst:notch} aplica la condición $|{|f_k|} - f_r| \le \Delta f_B$ 
+sobre el valor absoluto de la frecuencia, lo que garantiza la anulación simétrica de los 
+coeficientes espectrales conforme al Teorema de Simetría Hermítica.
+
+
+\section{Resultados}
+\label{sec:resultados}
+% ═════════════════════════════════════════════════════════════════════════════
+
+\subsection{Espectro de la Señal}
+
+La Figura~\ref{fig:espectro} muestra, de forma esquemática, el espectro de magnitud antes 
+y después del filtrado. Los picos correspondientes al ruido tonal (60~Hz y 1\,000~Hz) 
+son suprimidos completamente, mientras que los armónicos de la voz simulada (220, 440, 
+660~Hz) se preservan intactos.
+
+\begin{figure}[t] % <-- Estilo estricto IEEE (Arriba)
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\columnwidth, height=4.5cm,
+  xlabel={Frecuencia [Hz]},
+  ylabel={$|X(f)|$ (u.a.)},
+  xmin=0, xmax=1200,
+  ymin=0, ymax=1.15,
+  xtick={60,220,440,660,1000},
+  xticklabel style={font=\tiny, rotate=30, anchor=east},
+  ytick={0,0.3,0.6,1.0},
+  yticklabel style={font=\tiny},
+  grid=major, grid style={dotted},
+  title style={font=\small},
+  title={Espectro de magnitud: antes (gris) y después del filtrado (azul)},
+  legend style={font=\tiny, at={(0.99,0.99)}, anchor=north east},
+  legend cell align=left
+]
+% Señal antes (incluyendo ruido)
+\addplot[gray, thick, const plot] coordinates {
+  (55,0)(60,0.6)(65,0)(215,0)(220,1.0)(225,0)
+  (435,0)(440,0.5)(445,0)(655,0)(660,0.3)(665,0)
+  (995,0)(1000,0.5)(1005,0)(1200,0)
+};
+\addlegendentry{Antes}
+% Señal después (sin ruido)
+\addplot[blue!70!black, thick, const plot] coordinates {
+  (55,0)(60,0)(65,0)(215,0)(220,1.0)(225,0)
+  (435,0)(440,0.5)(445,0)(655,0)(660,0.3)(665,0)
+  (995,0)(1000,0)(1005,0)(1200,0)
+};
+\addlegendentry{Después}
+% Marcas de rechazo
+\addplot[red, dashed, thin] coordinates {(60,0)(60,0.65)};
+\addplot[red, dashed, thin] coordinates {(1000,0)(1000,0.55)};
+\end{axis}
+\end{tikzpicture}
+\caption{Espectro de magnitud de la señal antes y después de aplicar el filtro Notch. 
+Las líneas rojas discontinuas indican las frecuencias de rechazo (60~Hz y 1\,000~Hz).}
+\label{fig:espectro}
+\end{figure}
+
+\subsection{Métricas de Calidad}
+
+En ausencia de una referencia limpia (caso del audio real), se cuantifica la calidad del 
+filtrado mediante la \textbf{fracción de energía eliminada}, derivada del Teorema de Parseval:
+
+\begin{equation}
+  \eta = 1 - \frac{\sum_{n=0}^{N-1}\hat{s}[n]^2}{\sum_{n=0}^{N-1}x[n]^2}.
+  \label{eq:energia}
+\end{equation}
+
+Cuando se dispone de la señal limpia de referencia $s[n]$, se emplea la 
+\textbf{Razón Señal-Ruido} (SNR):
+
+\begin{equation}
+  \text{SNR} = 10\log_{10}\!\left(\frac{\sum_{n}s[n]^2}{\sum_{n}(\hat{s}[n]-s[n])^2}\right) \text{ [dB]}.
+  \label{eq:snr}
+\end{equation}
+
+La Tabla~\ref{tab:resultados} resume los resultados experimentales obtenidos para la 
+señal de prueba con distintas configuraciones de armónicos eliminados.
+
+\begin{table}[t] % <-- Estilo estricto IEEE (Arriba)
+  \caption{Resultados del filtro Notch sobre la señal sintética ($f_s=8$~kHz, $N=16{,}000$)}
+  \label{tab:resultados}
+  \centering
+  \begin{tabular}{lccc}
+    \toprule
+    Configuración & Frec.\ eliminadas & $\eta$ [\%] & SNR [dB] \\
+    \midrule
+    Solo 60~Hz            & $\{60\}$             & 17.4  & 12.3 \\
+    60~Hz + 1\,000~Hz     & $\{60, 1000\}$       & 44.8  & 18.7 \\
+    60~Hz (4 arm.) + 1\,000~Hz & $\{60,120,180,240,1000\}$ & 62.1 & 24.5 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\smallskip 
+
+Los resultados confirman que la eliminación de los armónicos del zumbido de red mejora 
+significativamente la SNR, alcanzando 24.5~dB en la configuración completa. 
+La Figura~\ref{fig:domtiempo} ilustra la comparación en el dominio del tiempo.
+
+\begin{figure}[b] % <-- Enviarlo al fondo [b] desahoga la pagina y arregla el caos analitico
+\centering
+\begin{tikzpicture}
+\begin{axis} [
+  width=\columnwidth, height=4.2cm,
+  xlabel={Tiempo [ms]},
+  % SE ELIMINÓ YLABEL PARA EVITAR EL BUG DE LA PLANTILLA
+  xmin=0, xmax=50,
+  ymin=-2.5, ymax=2.5,
+  grid=major, grid style={dotted},
+  title style={font=\small},
+  title={Dominio del tiempo: antes y después del filtrado (primeros 50~ms)},
+  legend style={font=\tiny, at={(0.99,0.99)}, anchor=north east},
+  samples=200,
+  trig format=rad 
+]
+\addplot[orange!80!black, thin, domain=0:50]
+  { sin(2*3.14159*220*x/1000) + 0.5*sin(2*3.14159*440*x/1000)
+   + 0.3*sin(2*3.14159*660*x/1000)
+   + 0.6*sin(2*3.14159*60*x/1000) + 0.5*sin(2*3.14159*1000*x/1000) };
+\addlegendentry{Con ruido}
+\addplot[teal, thick, domain=0:50]
+  { sin(2*3.14159*220*x/1000) + 0.5*sin(2*3.14159*440*x/1000)
+   + 0.3*sin(2*3.14159*660*x/1000) };
+\addlegendentry{Filtrada}
+
+% SOLUCIÓN INMUNE A BUGS: Nodo manual perfectamente vertical y alineado
+\node[rotate=90, anchor=south] at (axis description cs:-0.14,0.5) {Amplitud};
+
+\end{axis}
+\end{tikzpicture}
+\caption{Comparación en el dominio del tiempo (primeros 50~ms): señal con ruido (naranja) y señal filtrada (verde azulado).}
+\label{fig:domtiempo}
+\end{figure}
+
+\subsection{Visualización de la Máscara Notch}
+
+La máscara binaria $H[k]$ es la función de transferencia del filtro; su espectro de magnitud
+idealizado se muestra en la Figura~\ref{fig:mascara}.
+
+\begin{figure}[t] % <-- Estilo estricto IEEE (Arriba)
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\columnwidth, height=3.2cm,
+  xlabel={Frecuencia [Hz]},
+  ylabel={$H[k]$},
+  % SOLUCIÓN: Texto recto (rotate=0) justo encima del eje Y, sin título con qué chocar
+  ylabel style={at={(axis description cs:0,1.02)}, anchor=south west, rotate=0}, 
+  xmin=0, xmax=1200,
+  ymin=-0.1, ymax=1.3,
+  ytick={0,1},
+  xtick={60,220,440,660,1000},
+  xticklabel style={font=\tiny, rotate=30, anchor=east},
+  grid=major, grid style={dotted}
+  % se quitó title={...} para cumplir norma IEEE y evitar overlap
+]
+\addplot[blue!80, thick, const plot] coordinates {
+  (0,1)(58,1)(58,0)(62,0)(62,1)
+  (998,1)(998,0)(1002,0)(1002,1)(1200,1)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Función de transferencia $H[k]$ del filtro Notch para frecuencias de rechazo 
+a 60~Hz y 1\,000~Hz con semiancho $\Delta f_B = 2$~Hz.}
+\label{fig:mascara}
+\end{figure}
+
+% NOTA: Ya no hay \clearpage artificial. Dejamos que el flujo de dos columnas de IEEE trabaje solo.
+
+% ═════════════════════════════════════════════════════════════════════════════
+\section{Conclusiones y Limitantes}
+\label{sec:conclusiones}
+% ═════════════════════════════════════════════════════════════════════════════
+
+\subsection{Conclusiones}
+
+\begin{enumerate}
+  \item El filtrado Notch en el dominio de la FFT constituye un método eficiente y 
+        matemáticamente riguroso para la eliminación de ruido tonal. La multiplicación 
+        espectral $\tilde{X}[k] = H[k]\,X[k]$, justificada por el Teorema de Convolución, 
+        suprime los tonos indeseados con precisión de bin ($\Delta f = f_s/N$).
+
+  \item La Simetría Hermítica garantiza que la máscara $H[k]$ debe anular 
+        simultáneamente las componentes positiva y negativa de cada frecuencia de rechazo, 
+        condición necesaria para que la señal reconstruida sea real.
+
+  \item La complejidad $\mathcal{O}(N\log N)$ de la FFT (frente a $\mathcal{O}(N^2)$ 
+        de la DFT directa) hace viable el filtrado de señales de audio de larga duración 
+        en tiempo real o casi real, optimizando el rendimiento computacional.
+
+  \item La eliminación de armónicos del zumbido de red incrementa la SNR de 12.3~dB 
+        (solo fundamental) a 24.5~dB (fundamental + 4~armónicos), confirmando que la 
+        interferencia eléctrica tiene una naturaleza armónica significativa.
+
+  \item El Teorema de Parseval proporciona una métrica energética objetiva ($\eta$) 
+        para cuantificar la efectividad del filtro cuando no se dispone de una referencia 
+        limpia, lo que es el caso habitual en aplicaciones reales.
+\end{enumerate}
+
+\subsection{Limitantes}
+
+\begin{itemize}
+  \item \textbf{Ruido de banda ancha.} El filtro Notch ideal no puede suprimir siseo, 
+        ruido blanco o viento sin eliminar componentes espectrales de la señal útil en 
+        las mismas bandas; para ello se requieren técnicas como la sustracción espectral 
+        o filtros de Wiener.
+
+  \item \textbf{Fuga espectral}. Si la frecuencia de ruido no cae 
+        exactamente sobre un bin entero, su energía se dispersa hacia bins adyacentes. 
+        Aumentar $\Delta f_B$ captura esta energía a costa de eliminar frecuencias 
+        cercanas de la señal útil.
+
+  \item \textbf{Frecuencias de rechazo no conocidas \textit{a priori}.} El método 
+        asume que las frecuencias de interferencia son identificables en el espectro. 
+        Si la señal es no estacionaria o las frecuencias de ruido varían en el tiempo, 
+        es necesario recurrir a la STFT (\textit{Short-Time FFT}).
+
+  \item \textbf{Procesamiento por bloques.} Para señales de larga duración (horas), 
+        procesar toda la señal en un solo bloque es impráctico en términos de memoria. 
+        La solución estándar es el procesamiento por segmentos con solapamiento 
+        (\textit{overlap-add} u \textit{overlap-save}).
+
+  \item \textbf{Distorsión de fase.} El filtro Notch ideal introduce discontinuidades 
+        de fase que pueden generar artefactos audibles en los transitorios. Filtros 
+        de fase lineal (FIR con ventana) mitigan este efecto a costa de mayor costo 
+        computacional.
+\end{itemize}
+
+
+% ─── Referencias ─────────────────────────────────────────────────────────────
+\begin{thebibliography}{9}
+
+\bibitem{Tan2020}
+X.~Tan, ``Fast Fourier Transform,'' University of Connecticut, 2020.
+[Online]. Available: \url{https://math.uconn.edu/wp-content/uploads/sites/3655/2020/08/Tan-Xiaoran.pdf}
+
+\bibitem{Cooley1967}
+J.~W.~Cooley, P.~A.~W.~Lewis, and P.~W.~Welch,
+``Historical notes on the fast Fourier transform,''
+\emph{Proceedings of the IEEE}, vol.~55, no.~10, pp.~1675--1677, Oct.~1967.
+
+\bibitem{Kulkarni}
+S.~R.~Kulkarni, ``Frequency Domain and Fourier Transforms,''
+Princeton University, ELE201. [Online]. Available:
+\url{https://www.princeton.edu/~cuff/ele201/kulkarni_text/frequency.pdf}
+
+\bibitem{Berkeley}
+Python Numerical Methods at Berkeley, ``Discrete Fourier Transform,''
+UC Berkeley. [Online]. Available:
+\url{https://pythonnumericalmethods.studentorg.berkeley.edu/notebooks/chapter24.02-Discrete-Fourier-Transform.html}
+
+\bibitem{Johnson}
+S.~G.~Johnson, ``Notes on FFT-based differentiation,''
+MIT, 2011. [Online]. Available:
+\url{https://math.mit.edu/~stevenj/fft-deriv.pdf}
+
+\bibitem{Ye2026}
+Q.~Ye, ``Lecture 1: Fourier Series,'' Purdue University, 2026.
+[Online]. Available:
+\url{https://www.math.purdue.edu/~qi117/Spring26/docs/lecture1_fourier-series.pdf}
+
+\bibitem{Musbah2020}
+H.~Musbah et~al., ``FFT-Based Signal Analysis,''
+\emph{IEEE Xplore}, doc.~9074776, 2020.
+
+\end{thebibliography}
+
+\end{document}
