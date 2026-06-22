@@ -88,7 +88,7 @@ El ruido de origen eléctrico es uno de los problemas común en el procesamiento
 señales de audio. El \emph{zumbido de red} (\textit{hum}) a 50 o 60~Hz, junto con sus 
 armónicos, aparece sistemáticamente en grabaciones realizadas con equipamiento conectado 
 a la red eléctrica y constituye una interferencia tonal que degrada notablemente la calidad 
-de la señal \cite{Tan2020}.
+de la señal \cite{Smith1997}.
 
 \smallskip 
 
@@ -281,15 +281,16 @@ $h[n]$ (respuesta al impulso) mediante convolución en el tiempo.
 \end{theorem}
 
 \begin{IEEEproof}
-  $X[N-k] = \sum_{n=0}^{N-1} x[n] e^{-j2\pi(N-k)n/N}
-
-  
-           = \sum_{n=0}^{N-1} x[n] e^{j2\pi kn/N}
-           = \overline{\sum_{n=0}^{N-1} x[n] e^{-j2\pi kn/N}}
-           = \overline{X[k]}$,
-           
+\[
+\begin{aligned}
+X[N-k] &= \sum_{n=0}^{N-1} x[n] e^{-j2\pi(N-k)n/N} \\
+&= \sum_{n=0}^{N-1} x[n] e^{j2\pi kn/N} \\
+&= \overline{\sum_{n=0}^{N-1} x[n] e^{-j2\pi kn/N}} \\
+&= \overline{X[k]},
+\end{aligned}
+\]
 \smallskip 
-  donde se usó que $x[n] \in \mathbb{R}$ implica $\overline{x[n]} = x[n]$.
+donde se usó que $x[n] \in \mathbb{R}$ implica $\overline{x[n]} = x[n]$.
 \end{IEEEproof}
 
 \smallskip 
@@ -733,16 +734,10 @@ a 60~Hz y 1\,000~Hz con semiancho $\Delta f_B = 2$~Hz.}
 
 
 % ─── Referencias ─────────────────────────────────────────────────────────────
-\begin{thebibliography}{9}
+\begin{thebibliography}{12}
 
-\bibitem{Tan2020}
-X.~Tan, ``Fast Fourier Transform,'' University of Connecticut, 2020.
-[Online]. Available: \url{https://math.uconn.edu/wp-content/uploads/sites/3655/2020/08/Tan-Xiaoran.pdf}
-
-\bibitem{Cooley1967}
-J.~W.~Cooley, P.~A.~W.~Lewis, and P.~W.~Welch,
-``Historical notes on the fast Fourier transform,''
-\emph{Proceedings of the IEEE}, vol.~55, no.~10, pp.~1675--1677, Oct.~1967.
+\bibitem{Smith1997}
+S.~W.~Smith, \emph{The Scientist and Engineer's Guide to Digital Signal Processing}, San Diego, CA, USA: California Technical Publishing, 1997. [Online]. Available: \url{https://www.dspguide.com/ch19/3.htm}
 
 \bibitem{Kulkarni}
 S.~R.~Kulkarni, ``Frequency Domain and Fourier Transforms,''
@@ -767,6 +762,36 @@ Q.~Ye, ``Lecture 1: Fourier Series,'' Purdue University, 2026.
 \bibitem{Musbah2020}
 H.~Musbah et~al., ``FFT-Based Signal Analysis,''
 \emph{IEEE Xplore}, doc.~9074776, 2020.
+
+%% --- NUEVOS VIDEOS EDUCATIVOS COMPLEMENTARIOS ---
+
+\bibitem{Brunton2020}
+S.~L.~Brunton, ``The Fast Fourier Transform Algorithm,''
+\emph{YouTube}, Ene.~2020. [Online]. Available:
+\url{https://youtu.be/toj_IoCQE-4}
+
+
+\bibitem{BruntonDenoisePython}
+S.~L.~Brunton, ``Denoising Data with FFT [Python],''
+\emph{YouTube}, May~2020. [Online]. Available:
+\url{https://youtu.be/s2K1JfNR7Sc}
+
+\bibitem{XuDFT}
+S.~Xu, ``Discrete Fourier Transform - Simple Step by Step,''
+\emph{YouTube}, Oct.~2020. [Online]. Available:
+\url{https://youtu.be/mkGsMWi_j4Q}
+
+%% --- LITERATURA DE STANFORD (AUDIO Y FILTROS) ---
+
+\bibitem{SmithDFT}
+J.~O.~Smith, \emph{Mathematics of the Discrete Fourier Transform (DFT) with Audio Applications},
+Center for Computer Research in Music and Acoustics (CCRMA), Stanford University, 2007.
+[Online]. Available: \url{https://ccrma.stanford.edu/~jos/mdft/}
+
+\bibitem{SmithFilters}
+J.~O.~Smith, \emph{Introduction to Digital Filters with Audio Applications},
+Center for Computer Research in Music and Acoustics (CCRMA), Stanford University, 2007.
+[Online]. Available: \url{https://ccrma.stanford.edu/~jos/filters/}
 
 \end{thebibliography}
 
